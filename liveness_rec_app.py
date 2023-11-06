@@ -8,8 +8,19 @@ import imutils
 import pickle
 import time
 import cv2
+import mysql.connector
+from datetime import datetime
 
 
+db_config2 = {
+    "host": "127.0.0.1",
+    "user": "root",
+    "password": "my_password",
+    "database": "attendance_system" 
+}
+
+database = mysql.connector.connect(**db_config2)
+cursor = database.cursor()
 def FaceRecogLiveness(model_Path, le_Path, detector_folder, encodings, confidence=0.5):
     args = {'model': model_Path, 'le': le_Path, 'detector': detector_folder,
             'encodings': encodings, 'confidence': confidence}
@@ -34,15 +45,15 @@ def FaceRecogLiveness(model_Path, le_Path, detector_folder, encodings, confidenc
     cap = VideoStream(src=0).start()
     time.sleep(2)  # Giving the camera time to start
 
-    sequence_count = 0  ## Keeping a count of a particular face being detected back to back
+    sequence_count = 0
 
     name = 'Unknown'
     label_Name = 'fake'
-
+    employeeInfo = []
     ## Working on the VideoStream frames being captured
     while True:
         frame = cap.read()
-        frame = imutils.resize(frame, width=600)  # Resizing to make the process a bit smooth
+        frame = imutils.resize(frame, width=1000)  # Resizing to make the process a bit smooth
         cv2.putText(frame, "Press 'q' to quit", (20, 35), cv2.FONT_HERSHEY_COMPLEX, 0.75, (0, 255, 0), 2)
         ### Grabbing the frame dimensions and converting it into a blob
         ### (104.0, 177.0, 123.0) is the mean of image in FaceNet
@@ -81,7 +92,7 @@ def FaceRecogLiveness(model_Path, le_Path, detector_folder, encodings, confidenc
                 except:
                     break
 
-##########################################################################################################################
+#
 
                 # [FACE RECOGNITION BLOCK]
                 rgb = cv2.cvtColor(face_to_rec, cv2.COLOR_BGR2RGB)
@@ -106,24 +117,28 @@ def FaceRecogLiveness(model_Path, le_Path, detector_folder, encodings, confidenc
                         ## Getting the name with the highest count
                         name = max(counts, key=counts.get)
 
-                face = face.astype('float') / 255.0
-                face = tf.keras.preprocessing.image.img_to_array(face)
-                face = np.expand_dims(face, axis=0)
+                        face = face.astype('float') / 255.0
+                        face = tf.keras.preprocessing.image.img_to_array(face)
+                        face = np.expand_dims(face, axis=0)
 
-                ## Passing the face ROI through the trained liveness detection model.
-                ## Checking whether face is 'real' or 'fake'
+                        ## Passing the face ROI through the trained liveness detection model.
+                        ## Checking whether face is 'real' or 'fake'
 
-                preds = liveness_model.predict(face)[0]
-                j = np.argmax(preds)
-                label_Name = le.classes_[j]  ## Getting Label of the predicted class
+                        preds = liveness_model.predict(face)[0]
+                        j = np.argmax(preds)
+                        label_Name = le.classes_[j]  ## Getting Label of the predicted class
 
-                ## Showing the labeling with bounding box on the frame
-                label = f'{label_Name}: {preds[j]:.2f}'
-                if name == 'Unknown' or label_Name == 'fake':
-                    sequence_count = 0
-                else:
-                    sequence_count += 1
-                print(f'{name}, {label_Name}, seq:{sequence_count}')
+                        ## Showing the labeling with bounding box on the frame
+                        label = f'{label_Name}: {preds[j]:.2f}'
+                        if name == 'Unknown' or label_Name == 'fake':
+                          sequence_count = 0
+
+                        else:
+                          sequence_count += 1
+
+
+#
+                        print(f'{name}, {label_Name}, seq:{sequence_count}')
 
                 if label_Name == 'fake':
                     cv2.putText(frame, "Don't try to cheat!", (startX, endY + 25), cv2.FONT_HERSHEY_COMPLEX, 0.7, (0, 0, 255), 2)
@@ -143,7 +158,7 @@ def FaceRecogLiveness(model_Path, le_Path, detector_folder, encodings, confidenc
         key = cv2.waitKey(1) & 0xFF
 
         ## If 'q' is pressed, stop the loop
-        if key == ord('q') or sequence_count == 20:
+        if key == ord('q') or sequence_count == 12:
             break
 
 
@@ -154,8 +169,21 @@ def FaceRecogLiveness(model_Path, le_Path, detector_folder, encodings, confidenc
     time.sleep(2)
     return name, label_Name
 
+
 if __name__ == '__main__':
     name, label_Name = FaceRecogLiveness('liveness.model', 'label_encoder.pickle', 'face_detector',
-                                         'facial-recognition/encoded_faces.pickle', confidence=0.5)
+                                         'facial-recognition/encodedtestNumber.pickle', confidence=0.5)
+    s = name.split('-')
+    empderivedID = s[0]
+    datetimestamp = datetime.now()
 
-    print(name, label_Name)
+    update_query1 = "UPDATE emp_attendance SET attendance_count = attendance_count+1 WHERE employee_id=%s"
+    update_query2 = "UPDATE emp_attendance SET clock_in = %s WHERE employee_id = %s"
+    cursor.execute(update_query1, (empderivedID, ))
+    cursor.execute(update_query2, (datetimestamp, empderivedID))
+
+    database.commit()
+    cursor.close()
+    database.close()
+
+    print(s[1], "'s attendance has been updated and is verified as", label_Name)
